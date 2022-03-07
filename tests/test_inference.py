@@ -889,13 +889,13 @@ class TestMetadataRoundTrip:
                 assert value == tsinfer.INFERENCE_FULL
             assert decoded_metadata == all_metadata[site.id]
 
-    @pytest.mark.parametrize("use_schema", [True, False])
-    def test_population_metadata(self, use_schema):
+    @pytest.mark.parametrize("no_schema", [True, False])
+    def test_population_metadata(self, no_schema):
         ts = msprime.simulate(12, mutation_rate=5, random_seed=16)
         assert ts.num_sites > 2
         sample_data = tsinfer.SampleData(sequence_length=1)
-        if use_schema:
-            sample_data.populations_metadata_schema = tsinfer.permissive_json_schema()
+        if no_schema:
+            sample_data.populations_metadata_schema = None
         rng = random.Random(32)
         all_metadata = []
         for j in range(ts.num_samples):
@@ -914,7 +914,7 @@ class TestMetadataRoundTrip:
             assert all_metadata[j] == metadata
         output_ts = tsinfer.infer(sample_data)
         output_metadata = [
-            population.metadata if use_schema else json.loads(population.metadata)
+            json.loads(population.metadata) if no_schema else population.metadata
             for population in output_ts.populations()
         ]
         assert all_metadata == output_metadata
@@ -1079,15 +1079,20 @@ class TestMetadataRoundTrip:
         """
         n_indiv = 5
         ploidy = 2  # Diploids
-        seq_len = 10
         ts = tsutil.get_example_individuals_ts_with_metadata(
-            n_indiv, ploidy, seq_len, 1, skip_last=False
+            n_indiv, ploidy, skip_last=False
         )
         ts_inferred = tsinfer.infer(tsinfer.SampleData.from_tree_sequence(ts))
         assert ts.sequence_length == ts_inferred.sequence_length
         assert ts.metadata_schema.schema == ts_inferred.metadata_schema.schema
         assert ts.metadata == ts_inferred.metadata
-        assert ts.tables.populations == ts_inferred.tables.populations
+        assert ts.tables.populations.equals(
+            ts_inferred.tables.populations, ignore_metadata=True
+        )
+        # Check all the metadata in pops is in inferred pops (in addition to names etc)
+        for pop, pop_inferred in zip(ts.populations(), ts_inferred.populations()):
+            for key in pop.metadata.keys():
+                assert pop.metadata[key] == pop_inferred.metadata[key]
         assert ts.num_individuals == ts_inferred.num_individuals
         for i1, i2 in zip(ts.individuals(), ts_inferred.individuals()):
             assert list(i1.location) == list(i2.location)
@@ -1113,9 +1118,8 @@ class TestMetadataRoundTrip:
         """
         n_indiv = 5
         ploidy = 2  # Diploids
-        seq_len = 10
         individual_times = np.arange(n_indiv)
-        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy, seq_len)
+        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy)
         ts_inferred = tsinfer.infer(
             tsinfer.SampleData.from_tree_sequence(
                 ts, use_sites_time=True, use_individuals_time=True
@@ -2977,10 +2981,11 @@ class TestExtractAncestors:
 
         t2, node_id_map = tsinfer.extract_ancestors(samples, ts)
         assert len(t2.provenances) == len(t1.provenances) + 2
-        # Population data isn't carried through in ancestors tree sequences
+        # Population isn't carried through in ancestors tree sequences
         # for now.
         t2.populations.clear()
-        assert t1.equals(t2, ignore_provenance=True, ignore_ts_metadata=True)
+
+        t1.assert_equals(t2, ignore_provenance=True, ignore_ts_metadata=True)
 
         for node in ts.nodes():
             if node_id_map[node.id] != -1:

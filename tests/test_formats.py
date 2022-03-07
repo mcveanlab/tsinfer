@@ -191,7 +191,10 @@ class TestSampleData(DataContainerMixin):
         assert input_file.num_populations == ts.num_populations
         for pop in ts.populations():
             if pop.metadata:
-                assert pop_metadata[pop.id] == pop.metadata
+                for key in pop.metadata:
+                    # Everything in pop.metadata should also be in pop_metadata[pop.id]
+                    # (pop_metadata[pop.id] might have an extra name + description)
+                    assert pop_metadata[pop.id][key] == pop.metadata[key]
         if ts.num_individuals == 0:
             assert input_file.num_individuals == ts.num_samples
         else:
@@ -206,7 +209,7 @@ class TestSampleData(DataContainerMixin):
         IS_WINDOWS, reason="windows simultaneous file permissions issue"
     )
     def test_defaults_with_path(self):
-        ts = tsutil.get_example_ts(10, 10)
+        ts = tsutil.get_example_ts(10)
         with tempfile.TemporaryDirectory(prefix="tsinf_format_test") as tempdir:
             filename = os.path.join(tempdir, "samples.tmp")
             input_file = formats.SampleData(
@@ -284,19 +287,19 @@ class TestSampleData(DataContainerMixin):
             sample_data.add_site(0.1, [1, 1], inference=False)
 
     def test_defaults_no_path(self):
-        ts = tsutil.get_example_ts(10, 10)
+        ts = tsutil.get_example_ts(10)
         with formats.SampleData(sequence_length=ts.sequence_length) as sample_data:
             self.verify_data_round_trip(ts, sample_data)
             for _, array in sample_data.arrays():
                 assert array.compressor == formats.DEFAULT_COMPRESSOR
 
     def test_with_metadata_and_individuals(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2, 10, 1)
+        ts = tsutil.get_example_individuals_ts_with_metadata(5, ploidy=2)
         with formats.SampleData(sequence_length=ts.sequence_length) as sample_data:
             self.verify_data_round_trip(ts, sample_data)
 
     def test_access_individuals(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2, 10, 1)
+        ts = tsutil.get_example_individuals_ts_with_metadata(5, ploidy=2)
         sd = tsinfer.SampleData.from_tree_sequence(ts)
         assert sd.num_individuals > 0
         has_some_metadata = False
@@ -312,7 +315,7 @@ class TestSampleData(DataContainerMixin):
         assert i == sd.num_individuals - 1
 
     def test_access_populations(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2, 10, 1)
+        ts = tsutil.get_example_individuals_ts_with_metadata(5, ploidy=2)
         sd = tsinfer.SampleData.from_tree_sequence(ts)
         assert sd.num_individuals > 0
         has_some_metadata = False
@@ -327,7 +330,7 @@ class TestSampleData(DataContainerMixin):
         n_individuals = 4
         ploidy = 2
         individual_times = np.arange(n_individuals)  # Diploids
-        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy, 10)
+        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy)
         tables = ts.dump_tables()
         # Associate nodes at different times with a single individual
         nodes_time = tables.nodes.time
@@ -342,7 +345,7 @@ class TestSampleData(DataContainerMixin):
 
     def test_from_tree_sequence_bad_populations(self):
         n_individuals = 4
-        ts = tsutil.get_example_ts(n_individuals * 2, 10, 1)  # Diploids
+        ts = tsutil.get_example_ts(n_individuals * 2)  # Diploids
         tables = ts.dump_tables()
         # Associate each sample node with a new population
         for _ in range(n_individuals * 2):
@@ -363,14 +366,14 @@ class TestSampleData(DataContainerMixin):
             formats.SampleData.from_tree_sequence(bad_ts)
 
     def test_from_tree_sequence_simple(self):
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData(sequence_length=ts.sequence_length)
         self.verify_data_round_trip(ts, sd1)
         sd2 = formats.SampleData.from_tree_sequence(ts, use_sites_time=True)
         assert sd1.data_equal(sd2)
 
     def test_from_tree_sequence_variable_allele_number(self):
-        ts = tsutil.get_example_ts(10, 10)
+        ts = tsutil.get_example_ts(10)
         # Create > 2 alleles by scattering mutations on the tree nodes at the first site
         tables = ts.dump_tables()
         # We can't have mixed know and unknown times.
@@ -402,7 +405,7 @@ class TestSampleData(DataContainerMixin):
         assert sd1.data_equal(sd2)
 
     def test_from_tree_sequence_with_metadata(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2, 10)
+        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2)
         # Remove individuals
         tables = ts.dump_tables()
         tables.individuals.clear()
@@ -418,7 +421,7 @@ class TestSampleData(DataContainerMixin):
         assert sd1.data_equal(sd2)
 
     def test_from_tree_sequence_with_metadata_and_individuals(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 3, 10)
+        ts = tsutil.get_example_individuals_ts_with_metadata(5, ploidy=3)
         sd1 = formats.SampleData(sequence_length=ts.sequence_length)
         self.verify_data_round_trip(ts, sd1)
         sd2 = formats.SampleData.from_tree_sequence(ts, use_sites_time=True)
@@ -428,7 +431,7 @@ class TestSampleData(DataContainerMixin):
         n_indiv = 5
         ploidy = 2
         individual_times = np.arange(n_indiv)
-        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy, 10)
+        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy)
         # Test on a tree seq containing an individual with no nodes
         keep_samples = [u for i in ts.individuals() for u in i.nodes if i.id < n_indiv]
         ts = ts.simplify(samples=keep_samples, filter_individuals=False)
@@ -446,7 +449,7 @@ class TestSampleData(DataContainerMixin):
         n_indiv = 5
         ploidy = 2
         individual_times = np.arange(n_indiv + 1)
-        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy, 10)
+        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy)
         # Test on a tree seq containing an individual with no nodes
         keep_samples = [u for i in ts.individuals() for u in i.nodes if i.id < n_indiv]
         ts = ts.simplify(samples=keep_samples, filter_individuals=False)
@@ -457,7 +460,7 @@ class TestSampleData(DataContainerMixin):
     def test_from_tree_sequence_time_incompatibilities(self):
         ploidy = 2
         individual_times = np.arange(5)
-        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy, 10)
+        ts = tsutil.get_example_historical_sampled_ts(individual_times, ploidy)
         with pytest.raises(ValueError, match="Incompatible timescales"):
             _ = formats.SampleData.from_tree_sequence(ts, use_individuals_time=True)
         # Similar error if no individuals in the TS
@@ -471,7 +474,7 @@ class TestSampleData(DataContainerMixin):
             _ = formats.SampleData.from_tree_sequence(ts, use_individuals_time=True)
 
     def test_chunk_size(self):
-        ts = tsutil.get_example_ts(4, 2)
+        ts = tsutil.get_example_ts(4, mutation_rate=0.005)
         assert ts.num_sites > 50
         for chunk_size in [1, 2, 3, ts.num_sites - 1, ts.num_sites, ts.num_sites + 1]:
             input_file = formats.SampleData(
@@ -484,7 +487,7 @@ class TestSampleData(DataContainerMixin):
                     assert array.chunks[1] == chunk_size
 
     def test_filename(self):
-        ts = tsutil.get_example_ts(14, 15)
+        ts = tsutil.get_example_ts(14)
         with tempfile.TemporaryDirectory(prefix="tsinf_format_test") as tempdir:
             filename = os.path.join(tempdir, "samples.tmp")
             input_file = formats.SampleData(
@@ -504,7 +507,7 @@ class TestSampleData(DataContainerMixin):
             other_input_file.close()
 
     def test_chunk_size_file_equal(self):
-        ts = tsutil.get_example_ts(13, 15)
+        ts = tsutil.get_example_ts(13)
         with tempfile.TemporaryDirectory(prefix="tsinf_format_test") as tempdir:
             files = []
             for chunk_size in [5, 7]:
@@ -525,7 +528,7 @@ class TestSampleData(DataContainerMixin):
 
     @pytest.mark.slow
     def test_compressor(self):
-        ts = tsutil.get_example_ts(11, 17)
+        ts = tsutil.get_example_ts(11, random_seed=123)
         compressors = [
             None,
             formats.DEFAULT_COMPRESSOR,
@@ -545,7 +548,7 @@ class TestSampleData(DataContainerMixin):
                             assert array.compressor == compressor
 
     def test_multichar_alleles(self):
-        ts = tsutil.get_example_ts(5, 17)
+        ts = tsutil.get_example_ts(5)
         t = ts.dump_tables()
         t.sites.clear()
         t.mutations.clear()
@@ -562,13 +565,14 @@ class TestSampleData(DataContainerMixin):
         self.verify_data_round_trip(ts, input_file)
 
     def test_str(self):
-        ts = tsutil.get_example_ts(5, 3)
+        ts = tsutil.get_example_ts(5, random_seed=2)
         input_file = formats.SampleData(sequence_length=ts.sequence_length)
         self.verify_data_round_trip(ts, input_file)
         assert len(str(input_file)) > 0
 
     def test_eq(self):
-        ts = tsutil.get_example_ts(5, 3)
+        ts = tsutil.get_example_ts(5, random_seed=3)
+        print(ts.num_sites)
         input_file = formats.SampleData(sequence_length=ts.sequence_length)
         self.verify_data_round_trip(ts, input_file)
         assert input_file == input_file
@@ -576,7 +580,7 @@ class TestSampleData(DataContainerMixin):
         assert not ({} == input_file)
 
     def test_provenance(self):
-        ts = tsutil.get_example_ts(4, 3)
+        ts = tsutil.get_example_ts(4, random_seed=10)
         input_file = formats.SampleData(sequence_length=ts.sequence_length)
         self.verify_data_round_trip(ts, input_file)
         assert input_file.num_provenances == 1
@@ -591,7 +595,7 @@ class TestSampleData(DataContainerMixin):
         assert a[0][1] == record
 
     def test_clear_provenance(self):
-        ts = tsutil.get_example_ts(4, 3)
+        ts = tsutil.get_example_ts(4, random_seed=6)
         input_file = formats.SampleData(sequence_length=ts.sequence_length)
         self.verify_data_round_trip(ts, input_file)
         assert input_file.num_provenances == 1
@@ -717,21 +721,27 @@ class TestSampleData(DataContainerMixin):
         sample_data.add_site(position=0, genotypes=[0, 1])
         sample_data.finalise()
 
-        assert sample_data.populations_metadata[0] == {"a": 1}
-        assert sample_data.populations_metadata[1] == {"b": 2}
+        assert sample_data.populations_metadata[0] == {
+            "a": 1,
+            "name": tsinfer.AUTOGENERATED_POP_NAME_PREFIX + "0",
+            "description": tsinfer.AUTOGENERATED_POP_DESCRIPTION,
+        }
+        assert sample_data.populations_metadata[1] == {
+            "b": 2,
+            "name": tsinfer.AUTOGENERATED_POP_NAME_PREFIX + "1",
+            "description": tsinfer.AUTOGENERATED_POP_DESCRIPTION,
+        }
         assert sample_data.individuals_population[0] == 0
         assert sample_data.individuals_population[1] == 1
 
     def test_individual_metadata(self):
         sample_data = formats.SampleData(sequence_length=10)
-        sample_data.add_population({"a": 1})
-        sample_data.add_population({"b": 2})
-        sample_data.add_individual(population=0)
-        sample_data.add_individual(population=1)
+        sample_data.add_individual(metadata={"a": 1})
+        sample_data.add_individual(metadata={"b": 2})
         sample_data.add_site(0, [0, 0])
         sample_data.finalise()
-        assert sample_data.populations_metadata[0] == {"a": 1}
-        assert sample_data.populations_metadata[1] == {"b": 2}
+        assert sample_data.individuals_metadata[0] == {"a": 1}
+        assert sample_data.individuals_metadata[1] == {"b": 2}
 
     def test_add_individual_time(self):
         sample_data = formats.SampleData(sequence_length=10)
@@ -815,7 +825,7 @@ class TestSampleData(DataContainerMixin):
         assert sid == 1
 
     def test_sites(self):
-        ts = tsutil.get_example_ts(11, 15)
+        ts = tsutil.get_example_ts(11)
         assert ts.num_sites > 1
         input_file = formats.SampleData.from_tree_sequence(ts)
 
@@ -829,7 +839,7 @@ class TestSampleData(DataContainerMixin):
         assert next(all_sites, None) is None, None
 
     def test_sites_subset(self):
-        ts = tsutil.get_example_ts(11, 15)
+        ts = tsutil.get_example_ts(11)
         assert ts.num_sites > 1
         input_file = formats.SampleData.from_tree_sequence(ts, use_sites_time=True)
         assert list(input_file.sites([])) == []
@@ -847,7 +857,7 @@ class TestSampleData(DataContainerMixin):
             list(input_file.sites([10000]))
 
     def test_variants(self):
-        ts = tsutil.get_example_ts(11, 15)
+        ts = tsutil.get_example_ts(11)
         assert ts.num_sites > 1
         input_file = formats.SampleData.from_tree_sequence(ts)
 
@@ -862,7 +872,7 @@ class TestSampleData(DataContainerMixin):
         assert next(all_variants, None) is None, None
 
     def test_variants_subset_sites(self):
-        ts = tsutil.get_example_ts(4, 2)
+        ts = tsutil.get_example_ts(4, mutation_rate=0.004)
         assert ts.num_sites > 50
         for chunk_size in [1, 2, 3, ts.num_sites - 1, ts.num_sites, ts.num_sites + 1]:
             input_file = formats.SampleData(
@@ -888,7 +898,7 @@ class TestSampleData(DataContainerMixin):
                     assert every_variant == next(v)
 
     def test_all_haplotypes(self):
-        ts = tsutil.get_example_ts(13, 12)
+        ts = tsutil.get_example_ts(13, random_seed=111)
         assert ts.num_sites > 1
         input_file = formats.SampleData.from_tree_sequence(ts)
 
@@ -915,7 +925,7 @@ class TestSampleData(DataContainerMixin):
         assert j == ts.num_samples
 
     def test_haplotypes_index_errors(self):
-        ts = tsutil.get_example_ts(13, 12)
+        ts = tsutil.get_example_ts(13, random_seed=19)
         assert ts.num_sites > 1
         input_file = formats.SampleData.from_tree_sequence(ts)
         with pytest.raises(ValueError):
@@ -934,7 +944,7 @@ class TestSampleData(DataContainerMixin):
             list(input_file.haplotypes([3, 14]))
 
     def test_haplotypes_subsets(self):
-        ts = tsutil.get_example_ts(25, 12)
+        ts = tsutil.get_example_ts(25)
         assert ts.num_sites > 1
         input_file = formats.SampleData.from_tree_sequence(ts)
 
@@ -970,7 +980,7 @@ class TestSampleData(DataContainerMixin):
             assert j == len(subset)
 
     def test_ts_with_invariant_sites(self):
-        ts = tsutil.get_example_ts(5, 3)
+        ts = tsutil.get_example_ts(5)
         t = ts.dump_tables()
         positions = {site.position for site in ts.sites()}
         for j in range(10):
@@ -987,7 +997,7 @@ class TestSampleData(DataContainerMixin):
         assert len(str(input_file)) > 0
 
     def test_ts_with_root_mutations(self):
-        ts = tsutil.get_example_ts(5, 3)
+        ts = tsutil.get_example_ts(5)
         t = ts.dump_tables()
         positions = {site.position for site in ts.sites()}
         for tree in ts.trees():
@@ -1189,10 +1199,11 @@ class TestSampleData(DataContainerMixin):
         assert np.all(sd.num_alleles() == np.array([0, 1, 2, 2]))
 
     def test_append_sites(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(4, 2, 10)
-        sd1 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[0, 2]]))
-        sd2 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[2, 5]]))
-        sd3 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[5, 10]]))
+        pos = [0, 2000, 5000, 10000]
+        ts = tsutil.get_example_individuals_ts_with_metadata(4, sequence_length=pos[-1])
+        sd1 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[0:2]]))
+        sd2 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[1:3]]))
+        sd3 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[2:]]))
         sd = sd1.copy()  # put into write mode
         sd.append_sites(sd2, sd3)
         sd.finalise()
@@ -1204,20 +1215,22 @@ class TestSampleData(DataContainerMixin):
         sd_full.assert_data_equal(tsinfer.SampleData.from_tree_sequence(ts))
 
     def test_append_sites_bad_order(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(4, 2, 10)
-        sd1 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[0, 2]]))
-        sd2 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[2, 5]]))
-        sd3 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[5, 10]]))
+        pos = [0, 2000, 5000, 10000]
+        ts = tsutil.get_example_individuals_ts_with_metadata(4, sequence_length=pos[-1])
+        sd1 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[0:2]]))
+        sd2 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[1:3]]))
+        sd3 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[2:]]))
         sd = sd1.copy()  # put into write mode
         with pytest.raises(ValueError, match="ascending"):
             sd.append_sites(sd3, sd2)
 
     def test_append_sites_incompatible_files(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(4, 2, 10)
-        sd1 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[0, 2]]))
-        mid_ts = ts.keep_intervals([[2, 5]])
+        pos = [0, 2000, 5000, 10000]
+        ts = tsutil.get_example_individuals_ts_with_metadata(4, sequence_length=pos[-1])
+        sd1 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[0:2]]))
+        mid_ts = ts.keep_intervals([pos[1:3]])
         sd2 = tsinfer.SampleData.from_tree_sequence(mid_ts)
-        sd3 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([[5, 10]]))
+        sd3 = tsinfer.SampleData.from_tree_sequence(ts.keep_intervals([pos[2:]]))
         # Fails if altered SD is not in write mode
         with pytest.raises(ValueError, match="build"):
             sd1.append_sites(sd2, sd3)
@@ -1276,8 +1289,10 @@ class TestSampleDataMetadataSchemas:
         with formats.SampleData() as sample_data:
             sample_data.add_site(0, [0, 0])
         assert sample_data.metadata_schema == tsinfer.permissive_json_schema()
-        # Tables default to None for backward compatibility.
-        assert sample_data.populations_metadata_schema is None
+        assert (
+            sample_data.populations_metadata_schema == tsinfer.permissive_json_schema()
+        )
+        # other tables default to None for backward compatibility.
         assert sample_data.individuals_metadata_schema is None
         assert sample_data.sites_metadata_schema is None
 
@@ -1313,16 +1328,24 @@ class TestSampleDataMetadataSchemas:
         assert sample_data.metadata_schema == tsinfer.permissive_json_schema()
 
     def test_set_population_metadata_schema(self):
+        # By default we already use tsinfer.permissive_json_schema() for populations
         example_schema = tsinfer.permissive_json_schema()
+        example_schema["properties"]["xyz"] = {"type": "string"}
         with formats.SampleData() as sample_data:
-            assert sample_data.populations_metadata_schema is None
+            assert (
+                sample_data.populations_metadata_schema
+                == tsinfer.permissive_json_schema()
+            )
             sample_data.populations_metadata_schema = example_schema
             assert sample_data.populations_metadata_schema == example_schema
             sample_data.add_site(0, [0, 0])
         assert sample_data.populations_metadata_schema == example_schema
 
         with formats.SampleData() as sample_data:
-            assert sample_data.populations_metadata_schema is None
+            assert (
+                sample_data.populations_metadata_schema
+                == tsinfer.permissive_json_schema()
+            )
             sample_data.populations_metadata_schema = example_schema
             assert sample_data.populations_metadata_schema == example_schema
             sample_data.add_site(0, [0, 0])
@@ -1370,7 +1393,7 @@ class TestSampleDataSubset:
     """
 
     def test_no_arguments(self):
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         # No arguments gives the same data
         subset = sd1.subset()
@@ -1419,7 +1442,7 @@ class TestSampleDataSubset:
         assert j == len(sites)
 
     def test_simple_case(self):
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         G1 = ts.genotype_matrix()
         # Because this is a haploid tree sequence we can use the
@@ -1432,7 +1455,7 @@ class TestSampleDataSubset:
         self.verify_subset_data(sd1, cols, rows)
 
     def test_reordering_individuals(self):
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd = formats.SampleData.from_tree_sequence(ts)
         ind = np.arange(sd.num_individuals)[::-1]
         subset = sd.subset(individuals=ind)
@@ -1440,7 +1463,7 @@ class TestSampleDataSubset:
         assert np.array_equal(sd.sites_genotypes[:][:, ind], subset.sites_genotypes[:])
 
     def test_mixed_diploid_metadata(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(10, 2, 10)
+        ts = tsutil.get_example_individuals_ts_with_metadata(10, ploidy=2)
         sd = formats.SampleData.from_tree_sequence(ts)
         N = sd.num_individuals
         M = sd.num_sites
@@ -1453,7 +1476,7 @@ class TestSampleDataSubset:
         self.verify_subset_data(sd, [0, N - 1], range(M))
 
     def test_mixed_triploid_metadata(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(18, 3, 10)
+        ts = tsutil.get_example_individuals_ts_with_metadata(18, ploidy=3)
         sd = formats.SampleData.from_tree_sequence(ts)
         N = sd.num_individuals
         M = sd.num_sites
@@ -1466,7 +1489,7 @@ class TestSampleDataSubset:
         self.verify_subset_data(sd, [0, N - 1], range(M))
 
     def test_errors(self):
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         with pytest.raises(ValueError):
             sd1.subset(sites=[])
@@ -1495,7 +1518,7 @@ class TestSampleDataSubset:
     def test_file_kwargs(self):
         # Make sure we pass kwards on to the SampleData constructor as
         # required.
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "sample-data")
@@ -1511,7 +1534,7 @@ class TestSampleDataMerge:
     """
 
     def test_finalised(self):
-        ts1 = tsutil.get_example_ts(2, 2, 1)
+        ts1 = tsutil.get_example_ts(2)
         sd1 = formats.SampleData.from_tree_sequence(ts1)
         sd1_copy = sd1.copy()
         with pytest.raises(ValueError, match="not finalised"):
@@ -1520,16 +1543,16 @@ class TestSampleDataMerge:
             sd1.merge(sd1_copy)
 
     def test_different_sequence_lengths(self):
-        ts1 = tsutil.get_example_ts(2, 2, 1)
+        ts1 = tsutil.get_example_ts(2, sequence_length=10000)
         sd1 = formats.SampleData.from_tree_sequence(ts1)
-        ts2 = tsutil.get_example_ts(2, 3, 1)
+        ts2 = tsutil.get_example_ts(2, sequence_length=10001)
         sd2 = formats.SampleData.from_tree_sequence(ts2)
         with pytest.raises(ValueError):
             sd1.merge(sd2)
 
     def test_mismatch_ancestral_state(self):
         # Difference ancestral states
-        ts = tsutil.get_example_ts(2, 2, 1)
+        ts = tsutil.get_example_ts(2)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         tables = ts.dump_tables()
         tables.sites.ancestral_state += 2
@@ -1537,8 +1560,8 @@ class TestSampleDataMerge:
         with pytest.raises(ValueError):
             sd1.merge(sd2)
 
-    def verify(self, sd1, sd2):
-        sd3 = sd1.merge(sd2)
+    def verify(self, sd1, sd2, use_population_names=False):
+        sd3 = sd1.merge(sd2, use_population_names=use_population_names)
         n1 = sd1.num_samples
         n2 = sd2.num_samples
         assert sd3.num_samples == n1 + n2
@@ -1576,7 +1599,13 @@ class TestSampleDataMerge:
         assert len(new_pops) == len(old_pops)
         for new_pop, old_pop in zip(new_pops, old_pops):
             assert new_pop.id == old_pop.id + sd1.num_populations
-            assert new_pop.metadata == old_pop.metadata
+            if use_population_names:
+                assert new_pop.metadata == old_pop.metadata
+            else:
+                # Name could have been changed: just check other metadata
+                del old_pop.metadata["name"]
+                del new_pop.metadata["name"]
+                assert new_pop.metadata == old_pop.metadata
 
         sd1_sites = set(sd1.sites_position)
         sd2_sites = set(sd2.sites_position)
@@ -1615,7 +1644,7 @@ class TestSampleDataMerge:
 
     def test_merge_identical(self):
         n = 10
-        ts = tsutil.get_example_ts(n, 10, 1)
+        ts = tsutil.get_example_ts(n)
         sd1 = formats.SampleData.from_tree_sequence(ts, use_sites_time=True)
         sd2 = sd1.merge(sd1)
         assert sd2.num_sites == sd1.num_sites
@@ -1629,9 +1658,9 @@ class TestSampleDataMerge:
 
     def test_merge_distinct(self):
         n = 10
-        ts = tsutil.get_example_ts(n, 10, 1, random_seed=1)
+        ts = tsutil.get_example_ts(n, random_seed=1)
         sd1 = formats.SampleData.from_tree_sequence(ts)
-        ts = tsutil.get_example_ts(n, 10, 1, random_seed=2)
+        ts = tsutil.get_example_ts(n, random_seed=2)
         sd2 = formats.SampleData.from_tree_sequence(ts)
         assert len(set(sd1.sites_position) & set(sd2.sites_position)) == 0
 
@@ -1661,7 +1690,7 @@ class TestSampleDataMerge:
         self.verify(sd2, sd1)
 
     def test_merge_overlapping_sites(self):
-        ts = tsutil.get_example_ts(4, 10, 1, random_seed=1)
+        ts = tsutil.get_example_ts(4, random_seed=1)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         tables = ts.dump_tables()
         # Change the position of the first and last sites to we have
@@ -1679,24 +1708,28 @@ class TestSampleDataMerge:
         self.verify(sd2, sd1)
 
     def test_individuals_metadata_identical(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2, 10, 1)
+        ts = tsutil.get_example_individuals_ts_with_metadata(5)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         self.verify(sd1, sd1)
 
     def test_individuals_metadata_distinct(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2, 10, 1)
+        ts = tsutil.get_example_individuals_ts_with_metadata(
+            5, ploidy=2, discrete_genome=False
+        )  # Use discrete_genome to put sites at different positions
         sd1 = formats.SampleData.from_tree_sequence(ts)
-        ts = tsutil.get_example_individuals_ts_with_metadata(3, 3, 10, 1)
+        ts = tsutil.get_example_individuals_ts_with_metadata(
+            3, ploidy=3, discrete_genome=False
+        )
         sd2 = formats.SampleData.from_tree_sequence(ts)
         assert len(set(sd1.sites_position) & set(sd2.sites_position)) == 0
         self.verify(sd1, sd2)
         self.verify(sd2, sd1)
 
     def test_different_alleles_same_sites(self):
-        ts = tsutil.get_example_individuals_ts_with_metadata(5, 2, 10, 1)
+        ts = tsutil.get_example_ts(5, mutation_model=msprime.BinaryMutationModel())
         sd1 = formats.SampleData.from_tree_sequence(ts)
         tables = ts.dump_tables()
-        tables.mutations.derived_state += 1
+        tables.mutations.derived_state += 1  # "0" -> "1", "1"-> "2", etc
         sd2 = formats.SampleData.from_tree_sequence(tables.tree_sequence())
         self.verify(sd1, sd2)
         self.verify(sd2, sd1)
@@ -1733,7 +1766,7 @@ class TestSampleDataMerge:
     def test_file_kwargs(self):
         # Make sure we pass kwards on to the SampleData constructor as
         # required.
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "sample-data")
@@ -1749,7 +1782,7 @@ class TestMinSiteTimes:
     """
 
     def test_no_historical(self):
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData.from_tree_sequence(ts, use_sites_time=True)
         # No arguments and individuals_only=True should give array of zeros
         bounds_individuals_only = sd1.min_site_times(individuals_only=True)
@@ -1782,7 +1815,7 @@ class TestMinSiteTimes:
         assert np.array_equal(time_bound, sd1.sites_time[:])
 
     def test_errors(self):
-        ts = tsutil.get_example_ts(10, 10, 1)
+        ts = tsutil.get_example_ts(10)
         sd1 = formats.SampleData.from_tree_sequence(ts)
         individuals_time = sd1.individuals_time[:]
         neg_times_sd1 = sd1.copy()
@@ -1804,8 +1837,8 @@ class TestAncestorData(DataContainerMixin):
     ):
         ts = msprime.simulate(
             sample_size,
-            recombination_rate=1,
             mutation_rate=10,
+            recombination_rate=1,
             length=sequence_length,
             random_seed=100,
         )
@@ -1934,7 +1967,7 @@ class TestAncestorData(DataContainerMixin):
     def test_chunk_size(self):
         N = 20
         for chunk_size in [1, 2, 3, N - 1, N, N + 1]:
-            sample_data, ancestors = self.get_example_data(6, 1, N)
+            sample_data, ancestors = self.get_example_data(6, 1, num_ancestors=N)
             ancestor_data = tsinfer.AncestorData(sample_data, chunk_size=chunk_size)
             self.verify_data_round_trip(sample_data, ancestor_data, ancestors)
             assert ancestor_data.ancestors_haplotype.chunks == (chunk_size,)

@@ -1436,6 +1436,13 @@ class AncestorMatcher(Matcher):
             child=child,
         )
 
+        # Add the schema to the ancestors TS: this does not persist through to the
+        # final TS, but could be useful for adding populations associated with
+        # historical individuals
+        schema = self.sample_data.populations_metadata_schema
+        if schema is not None:
+            tables.populations.metadata_schema = tskit.MetadataSchema(schema)
+
         self.convert_inference_mutations(tables)
 
         logger.debug("Sorting ancestors tree sequence")

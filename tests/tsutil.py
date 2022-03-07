@@ -48,14 +48,13 @@ def add_default_schemas(ts):
     """
     tables = ts.dump_tables()
     schema = tskit.MetadataSchema(tsinfer.permissive_json_schema())
-    # Make sure we're not overwriting existing metadata. This will probably
-    # fail when msprime 1.0 comes along, but we can fix it then.
     assert len(tables.metadata) == 0
     tables.metadata_schema = schema
     tables.metadata = {}
     tables.populations.metadata_schema = schema
-    assert len(tables.populations.metadata) == 0
-    tables.populations.packset_metadata([b"{}"] * ts.num_populations)
+    # msprime 1.0 fills the population metadata, so put it back in here
+    for pop in ts.populations():
+        tables.populations[pop.id] = pop
     tables.individuals.metadata_schema = schema
     assert len(tables.individuals.metadata) == 0
     tables.individuals.packset_metadata([b"{}"] * ts.num_individuals)
@@ -65,19 +64,36 @@ def add_default_schemas(ts):
     return tables.tree_sequence()
 
 
-def get_example_ts(sample_size, sequence_length, mutation_rate=10, random_seed=100):
-    ts = msprime.simulate(
+def get_example_ts(
+    sample_size,
+    sequence_length=10000,
+    mutation_rate=0.0005,
+    mutation_model=None,
+    discrete_genome=True,
+    random_seed=100,
+):
+    ts = msprime.sim_ancestry(
         sample_size,
-        recombination_rate=1,
-        mutation_rate=mutation_rate,
-        length=sequence_length,
+        ploidy=1,
+        sequence_length=sequence_length,
+        recombination_rate=mutation_rate * 0.1,
+        discrete_genome=discrete_genome,
         random_seed=random_seed,
+    )
+    ts = msprime.sim_mutations(
+        ts, rate=mutation_rate, model=mutation_model, random_seed=random_seed
     )
     return add_default_schemas(ts)
 
 
 def get_example_individuals_ts_with_metadata(
-    n, ploidy, length, mutation_rate=1, *, skip_last=True
+    n,
+    ploidy=2,
+    sequence_length=10000,
+    mutation_rate=0.0002,
+    *,
+    discrete_genome=True,
+    skip_last=True,
 ):
     """
     For testing only, create a ts with lots of arbitrary metadata attached to sites,
@@ -88,18 +104,22 @@ def get_example_individuals_ts_with_metadata(
     For testing purposes, we can set ``skip_last`` to check what happens if we have
     some samples that are not associated with an individual in the tree sequence.
     """
-    ts = msprime.simulate(
-        n * ploidy,
-        recombination_rate=1,
-        mutation_rate=mutation_rate,
-        length=length,
+    ts = msprime.sim_ancestry(
+        n,
+        ploidy=ploidy,
+        recombination_rate=mutation_rate * 0.1,
+        sequence_length=sequence_length,
         random_seed=100,
+        discrete_genome=discrete_genome,
+    )
+    ts = msprime.sim_mutations(
+        ts, rate=mutation_rate, discrete_genome=discrete_genome, random_seed=100
     )
     ts = add_default_schemas(ts)
     tables = ts.dump_tables()
     tables.metadata = {f"a_{j}": j for j in range(n)}
-
     tables.populations.clear()
+    tables.individuals.clear()
     for i in range(n):
         location = [i, i]
         individual_meta = {}
@@ -107,9 +127,7 @@ def get_example_individuals_ts_with_metadata(
         if i % 2 == 0:
             # Add unicode metadata to every other individual: 8544+i = Roman numerals
             individual_meta = {"unicode id": chr(8544 + i)}
-            # TODO: flags should use np.iinfo(np.uint32).max. Change after solving issue
-            # https://github.com/tskit-dev/tskit/issues/1027
-            individual_flags = np.random.randint(0, np.iinfo(np.int32).max)
+            individual_flags = np.random.randint(0, np.iinfo(np.uint32).max)
             # Also for populations: chr(127462) + chr(127462+i) give emoji flags
             pop_meta = {"utf": chr(127462) + chr(127462 + i)}
         tables.populations.add_row(metadata=pop_meta)  # One pop for each individual
@@ -145,22 +163,28 @@ def get_example_individuals_ts_with_metadata(
     return tables.tree_sequence()
 
 
-def get_example_historical_sampled_ts(individual_times, ploidy=2, sequence_length=1):
+def get_example_historical_sampled_ts(
+    individual_times,
+    ploidy=2,
+    sequence_length=10000,
+    mutation_rate=0.0002,
+):
     samples = [
-        msprime.Sample(population=0, time=t)
+        msprime.SampleSet(1, population=0, time=t, ploidy=ploidy)
         for t in individual_times
-        for _ in range(ploidy)
     ]
-    ts = msprime.simulate(
+    ts = msprime.sim_ancestry(
         samples=samples,
-        recombination_rate=1,
-        mutation_rate=10,
-        length=sequence_length,
+        ploidy=ploidy,
+        recombination_rate=mutation_rate * 0.1,
+        sequence_length=sequence_length,
         random_seed=100,
     )
+    ts = msprime.sim_mutations(ts, rate=mutation_rate, random_seed=100)
     ts = add_default_schemas(ts)
     tables = ts.dump_tables()
     # Add individuals
+    tables.individuals.clear()
     nodes_individual = tables.nodes.individual
     individual_ids = []
     for _ in individual_times:
