@@ -2031,6 +2031,10 @@ class SampleData(DataContainer):
             ``None``, return haplotypes for all sample nodes, otherwise this may be a
             numpy array (or array-like) object (converted to dtype=np.int32).
         :param array sites: A numpy array of sites to use.
+
+
+        :return: An iterator returning sucessive instances of (sample_id, haplotype).
+        :rtype: iter(int, numpy.ndarray(dtype=int8))
         """
         if samples is None:
             samples = np.arange(self.num_samples)
@@ -2123,6 +2127,7 @@ class Ancestor:
     time = attr.ib()
     focal_sites = attr.ib()
     haplotype = attr.ib()
+    sample_id = attr.ib()
 
     def __eq__(self, other):
         return (
@@ -2170,7 +2175,7 @@ class AncestorData(DataContainer):
     """
 
     FORMAT_NAME = "tsinfer-ancestor-data"
-    FORMAT_VERSION = (3, 0)
+    FORMAT_VERSION = (3, 1)
 
     def __init__(self, sample_data, **kwargs):
         super().__init__(**kwargs)
@@ -2229,6 +2234,13 @@ class AncestorData(DataContainer):
             dtype="array:i1",
             compressor=self._compressor,
         )
+        self.data.create_dataset(
+            "ancestors/sample_id",
+            shape=(0,),
+            chunks=chunks,
+            compressor=self._compressor,
+            dtype=np.int32,
+        )
 
         self._alloc_ancestor_writer()
 
@@ -2244,6 +2256,7 @@ class AncestorData(DataContainer):
                 "time": self.ancestors_time,
                 "focal_sites": self.ancestors_focal_sites,
                 "haplotype": self.ancestors_haplotype,
+                "sample_id": self.ancestors_sample_id,
             },
             num_threads=self._num_flush_threads,
         )
@@ -2265,6 +2278,7 @@ class AncestorData(DataContainer):
             ("ancestors/time", zarr_summary(self.ancestors_time)),
             ("ancestors/focal_sites", zarr_summary(self.ancestors_focal_sites)),
             ("ancestors/haplotype", zarr_summary(self.ancestors_haplotype)),
+            ("ancestors/sample_id", zarr_summary(self.ancestors_sample_id)),
         ]
         return super().__str__() + self._format_str(values)
 
@@ -2289,6 +2303,9 @@ class AncestorData(DataContainer):
                 self.ancestors_focal_sites[:], other.ancestors_focal_sites[:]
             )
             and np_obj_equal(self.ancestors_haplotype[:], other.ancestors_haplotype[:])
+            and np.array_equal(
+                self.ancestors_sample_id[:], other.ancestors_sample_id[:]
+            )
         )
 
     @property
@@ -2341,6 +2358,10 @@ class AncestorData(DataContainer):
         return self.data["ancestors/haplotype"]
 
     @property
+    def ancestors_sample_id(self):
+        return self.data["ancestors/sample_id"]
+
+    @property
     def ancestors_length(self):
         """
         Returns the length of ancestors in physical coordinates.
@@ -2358,6 +2379,7 @@ class AncestorData(DataContainer):
         *,
         sample_ids=None,
         epsilon=None,
+        map_ancestors=False,
         allow_mutation=False,
         require_same_sample_data=True,
         **kwargs,
@@ -2370,7 +2392,8 @@ class AncestorData(DataContainer):
 
         A *proxy sample ancestor* is an ancestor based upon a known sample. At
         sites used in the full inference process, the haplotype of this ancestor
-        is identical to that of the sample on which it is based. The time of the
+        is identical to that of the sample on which it is based, and the
+        The time of the
         ancestor is taken to be a fraction ``epsilon`` older than the sample on
         which it is based.
 
@@ -2384,11 +2407,11 @@ class AncestorData(DataContainer):
 
         .. note::
 
-            The proxy sample ancestors inserted here will correspond to extra nodes
-            in the inferred tree sequence. At sites which are not used in the full
+            The proxy sample ancestors inserted here will end up as extra nodes
+            in the inferred tree sequence, but at sites which are not used in the full
             inference process (e.g. sites unique to a single historical sample),
-            these proxy sample ancestor nodes may have a different genotype from
-            their corresponding sample.
+            it is possible for these proxy sample ancestor nodes to have a different
+            genotype from their corresponding sample.
 
         :param SampleData sample_data: The :class:`.SampleData` instance
             from which to select the samples used to create extra ancestors.
@@ -2423,7 +2446,8 @@ class AncestorData(DataContainer):
             to ensure that the encoding of alleles in ``sample_data`` matches the
             encoding in the current :class:`AncestorData` instance (i.e. that in the
             original :class:`.SampleData` instance on which the current ancestors
-            are based).
+            are based). Note that in this case, the sample_id is not recorded in the
+            returned object.
         :param \\**kwargs: Further arguments passed to the constructor when creating
             the new :class:`AncestorData` instance which will be returned.
 
@@ -2521,7 +2545,11 @@ class AncestorData(DataContainer):
                     time=proxy_time,
                     focal_sites=[],
                     haplotype=haplotype,
+                    sample_id=sample_id
+                    if sample_data.uuid == self.sample_data_uuid
+                    else tskit.NULL,
                 )
+
             # Add any ancestors remaining in the current instance
             while ancestor is not None:
                 other.add_ancestor(**attr.asdict(ancestor, filter=exclude_id))
@@ -2603,7 +2631,6 @@ class AncestorData(DataContainer):
         start = self.ancestors_start[:]
         end = self.ancestors_end[:]
         time = self.ancestors_time[:]
-        focal_sites = self.ancestors_focal_sites[:]
         haplotypes = self.ancestors_haplotype[:]
         if upper_time_bound > np.max(time) or lower_time_bound > np.max(time):
             raise ValueError("Time bounds cannot be greater than older ancestor")
@@ -2641,16 +2668,12 @@ class AncestorData(DataContainer):
                     )
                     start[anc.id] = insert_pos_start
                     end[anc.id] = insert_pos_end
-                    time[anc.id] = anc.time
-                    focal_sites[anc.id] = anc.focal_sites
                     haplotypes[anc.id] = anc.haplotype[
                         insert_pos_start - anc.start : insert_pos_end - anc.start
                     ]
                     # TODO - record truncation in ancestors' metadata when supported
         truncated.ancestors_start[:] = start
         truncated.ancestors_end[:] = end
-        truncated.ancestors_time[:] = time
-        truncated.ancestors_focal_sites[:] = focal_sites
         truncated.ancestors_haplotype[:] = haplotypes
         truncated.record_provenance(command="truncate_ancestors")
         truncated.finalise()
@@ -2671,6 +2694,12 @@ class AncestorData(DataContainer):
         sites in the sample data file, and the IDs must be in increasing order.
 
         This must be called before the first call to :meth:`.add_ancestor`.
+
+        .. note::
+            To obtain a list of which sites in a sample data or a tree sequence have
+            been placed into the ancestors file for use in inference, you can apply
+            :func:`numpy.isin` to the list of positions, e.g.
+            ``np.isin(sample_data.sites_position[:], ancestors.sites_position[:])``
         """
         self._check_build_mode()
         position = self.sample_data.sites_position[:][site_ids]
@@ -2679,12 +2708,18 @@ class AncestorData(DataContainer):
         array[:] = position
         self._num_alleles = self.sample_data.num_alleles(site_ids)
 
-    def add_ancestor(self, start, end, time, focal_sites, haplotype):
+    def add_ancestor(
+        self, start, end, time, focal_sites, haplotype, sample_id=tskit.NULL
+    ):
         """
         Adds an ancestor with the specified haplotype, with ancestral material over the
         interval [start:end], that is associated with the specified timepoint and has new
-        mutations at the specified list of focal sites. Ancestors should be added in time
-        order, with the oldest first. The id of the added ancestor is returned.
+        mutations at the specified list of focal sites. If this ancestor is based on a
+        specific sample from the associated sample_data file (i.e. a historical sample)
+        then the ``sample_id`` in the sample data file can also be passed as a parameter.
+
+        The Ancestors should be added in time order, with the oldest first. The id of
+        the added ancestor is returned.
         """
         self._check_build_mode()
         haplotype = tskit.util.safe_np_int_cast(haplotype, dtype=np.int8, copy=True)
@@ -2714,6 +2749,7 @@ class AncestorData(DataContainer):
             time=time,
             focal_sites=focal_sites,
             haplotype=haplotype,
+            sample_id=sample_id,
         )
 
     def finalise(self):
@@ -2739,6 +2775,7 @@ class AncestorData(DataContainer):
             time=self.ancestors_time[id_],
             focal_sites=self.ancestors_focal_sites[id_],
             haplotype=self.ancestors_haplotype[id_],
+            sample_id=self.ancestors_sample_id[id_],
         )
 
     def ancestors(self):
@@ -2750,6 +2787,7 @@ class AncestorData(DataContainer):
         end = self.ancestors_end[:]
         time = self.ancestors_time[:]
         focal_sites = self.ancestors_focal_sites[:]
+        sample_id = self.ancestors_sample_id[:]
         for j, h in enumerate(chunk_iterator(self.ancestors_haplotype)):
             yield Ancestor(
                 id=j,
@@ -2758,6 +2796,7 @@ class AncestorData(DataContainer):
                 time=time[j],
                 focal_sites=focal_sites[j],
                 haplotype=h,
+                sample_id=sample_id[j],
             )
 
 

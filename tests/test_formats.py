@@ -2193,12 +2193,41 @@ class TestAncestorData(DataContainerMixin):
                 sample_data, sample_ids=[i]
             )
             assert ancestors.num_ancestors + 1 == ancestors_extra.num_ancestors
-            inserted = -1
+            inserted = -1  # inserted one should always be the last
             self.assert_ancestor_full_span(ancestors_extra, [inserted])
             assert np.array_equal(
                 ancestors_extra.ancestors_haplotype[inserted],
                 sample_data.sites_genotypes[:, i][used_sites],
             )
+
+    def test_insert_proxy_sample_ids(self):
+        ids = [1, 4]
+        sd, _ = self.get_example_data(10, 10, 40)
+        ancestors = tsinfer.generate_ancestors(sd).insert_proxy_samples(
+            sd, sample_ids=ids
+        )
+        inference_sites = np.isin(sd.sites_position[:], ancestors.sites_position[:])
+        anc_sample_ids = ancestors.ancestors_sample_id[:]
+        assert np.sum(anc_sample_ids != tskit.NULL) == len(ids)
+        for sample_id in ids:
+            assert np.sum(anc_sample_ids == sample_id) == 1
+            anc_sample = np.where(anc_sample_ids == sample_id)[0][0]
+            assert ancestors.ancestors_start[anc_sample] == 0
+            assert ancestors.ancestors_end[anc_sample] == ancestors.num_sites
+            assert len(ancestors.ancestors_focal_sites[anc_sample]) == 0
+
+            haplotype = next(sd.haplotypes([sample_id], sites=inference_sites))[1]
+            assert np.all(ancestors.ancestors_haplotype[anc_sample] == haplotype)
+
+    def test_insert_proxy_different_sample_data(self):
+        ids = [1, 4]
+        sd, _ = self.get_example_data(10, 10, 40)
+        ancestors = tsinfer.generate_ancestors(sd)
+        sd_copy, _ = self.get_example_data(10, 10, num_ancestors=40)
+        ancestors_extra = ancestors.insert_proxy_samples(
+            sd_copy, sample_ids=ids, require_same_sample_data=False
+        )
+        assert np.all(ancestors_extra.ancestors_sample_id[:] == tskit.NULL)
 
     def test_insert_proxy_sample_provenance(self):
         sample_data, _ = self.get_example_data(10, 10, 40)
@@ -2242,6 +2271,8 @@ class TestAncestorData(DataContainerMixin):
         assert np.array_equal(
             ancestors_extra.ancestors_time[-1], historical_sample_time + epsilon
         )
+        assert np.sum(ancestors_extra.ancestors_sample_id[:] != tskit.NULL) == 1
+        assert ancestors_extra.ancestors_sample_id[-1] == 9
 
         # Test 2 proxies, one historical, specified in different ways / orders
         s_ids = np.array([9, 0])
@@ -2263,6 +2294,9 @@ class TestAncestorData(DataContainerMixin):
                 ancestors_extra.ancestors_haplotype[-1], G[:, 0][used_sites]
             )
             assert np.array_equal(ancestors_extra.ancestors_time[-1], epsilon)
+            assert np.sum(ancestors_extra.ancestors_sample_id[:] != tskit.NULL) == 2
+            assert ancestors_extra.ancestors_sample_id[-2] == 9
+            assert ancestors_extra.ancestors_sample_id[-1] == 0
 
     def test_insert_proxy_sample_epsilon(self):
         sample_data, _ = self.get_example_data(10, 10, 40)
