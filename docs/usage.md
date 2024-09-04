@@ -107,10 +107,11 @@ onto branches by {meth}`parsimony<tskit.Tree.map_mutations>`.
 It is also possible to *completely* exclude sites and samples, by specifing a boolean
 `site_mask` and/or a `sample_mask` when creating the `VariantData` object. Sites or samples with
 a mask value of `True` will be completely omitted both from inference and the final tree sequence.
-This can be useful, for example, if your VCF file contains multiple chromosomes (in which case
-`tsinfer` will need to be run separately on each chromosome) or if you wish to select only a subset
-of the chromosome for inference (e.g. to reduce computational load). If a `site_mask` is provided,
-note that the ancestral alleles array only specifies alleles for the unmasked sites.
+This can be useful, for example, if you wish to select only a subset of the chromosome for
+inference, e.g. to reduce computational load. You can also use it to subset inference to a
+particular contig, if your dataset contains multiple contigs (although this can be more easily
+done using the `contig_id` parameter). Note that if a `site_mask` is provided,
+the ancestral states array should only specify alleles for the unmasked sites.
 
 Below, for instance, is an example of including only sites up to position six in the contig
 labelled "chr1" in the `example_data.vcz` file:
