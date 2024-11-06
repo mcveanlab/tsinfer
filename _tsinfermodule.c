@@ -60,6 +60,17 @@ uint64_PyArray_converter(PyObject *in, PyObject **out)
     return NPY_SUCCEED;
 }
 
+static int
+int8_PyArray_converter(PyObject *in, PyObject **out)
+{
+    PyObject *ret = PyArray_FROMANY(in, NPY_INT8, 1, 1, NPY_ARRAY_IN_ARRAY);
+    if (ret == NULL) {
+        return NPY_FAIL;
+    }
+    *out = ret;
+    return NPY_SUCCEED;
+}
+
 /*===================================================================
  * AncestorBuilder
  *===================================================================
@@ -429,8 +440,11 @@ TreeSequenceBuilder_init(TreeSequenceBuilder *self, PyObject *args, PyObject *kw
 {
     int ret = -1;
     int err;
-    static char *kwlist[] = {"num_alleles", "max_nodes", "max_edges", NULL};
+    static char *kwlist[] = {"num_alleles", "max_nodes", "max_edges", "ancestral_state",
+        NULL};
     PyArrayObject *num_alleles = NULL;
+    PyArrayObject *ancestral_state = NULL;
+    int8_t *ancestral_state_data = NULL;
     unsigned long max_nodes = 1024;
     unsigned long max_edges = 1024;
     unsigned long num_sites;
@@ -438,21 +452,31 @@ TreeSequenceBuilder_init(TreeSequenceBuilder *self, PyObject *args, PyObject *kw
     int flags = 0;
 
     self->tree_sequence_builder = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|kk", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O&|kkO&", kwlist,
             uint64_PyArray_converter, &num_alleles,
-            &max_nodes, &max_edges)) {
+            &max_nodes, &max_edges,
+            int8_PyArray_converter, &ancestral_state)) {
         goto out;
     }
     shape = PyArray_DIMS(num_alleles);
     num_sites = shape[0];
-
+    if (ancestral_state != NULL) {
+        shape = PyArray_DIMS(ancestral_state);
+        if (shape[0] != (npy_intp) num_sites) {
+            PyErr_SetString(PyExc_ValueError, "ancestral state array wrong size");
+            goto out;
+        }
+        ancestral_state_data = PyArray_DATA(ancestral_state);
+    }
     self->tree_sequence_builder = PyMem_Malloc(sizeof(tree_sequence_builder_t));
     if (self->tree_sequence_builder == NULL) {
         PyErr_NoMemory();
         goto out;
     }
     err = tree_sequence_builder_alloc(self->tree_sequence_builder,
-            num_sites, PyArray_DATA(num_alleles),
+            num_sites,
+            PyArray_DATA(num_alleles),
+            ancestral_state_data,
             max_nodes, max_edges, flags);
     if (err != 0) {
         handle_library_error(err);
@@ -461,6 +485,7 @@ TreeSequenceBuilder_init(TreeSequenceBuilder *self, PyObject *args, PyObject *kw
     ret = 0;
 out:
     Py_XDECREF(num_alleles);
+    Py_XDECREF(ancestral_state);
     return ret;
 }
 
@@ -1283,21 +1308,21 @@ AncestorMatcher_init(AncestorMatcher *self, PyObject *args, PyObject *kwds)
     int err;
     int extended_checks = 0;
     static char *kwlist[] = {"tree_sequence_builder", "recombination",
-        "mismatch", "precision", "extended_checks", NULL};
+        "mismatch", "likelihood_threshold", "extended_checks", NULL};
     TreeSequenceBuilder *tree_sequence_builder = NULL;
     PyObject *recombination = NULL;
     PyObject *mismatch = NULL;
     PyArrayObject *recombination_array = NULL;
     PyArrayObject *mismatch_array = NULL;
     npy_intp *shape;
-    unsigned int precision = 22;
+    double likelihood_threshold = DBL_MIN;
     int flags = 0;
 
     self->ancestor_matcher = NULL;
     self->tree_sequence_builder = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!OO|Ii", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!OO|di", kwlist,
                 &TreeSequenceBuilderType, &tree_sequence_builder,
-                &recombination, &mismatch, &precision,
+                &recombination, &mismatch, &likelihood_threshold,
                 &extended_checks)) {
         goto out;
     }
@@ -1343,7 +1368,7 @@ AncestorMatcher_init(AncestorMatcher *self, PyObject *args, PyObject *kwds)
             self->tree_sequence_builder->tree_sequence_builder,
             PyArray_DATA(recombination_array),
             PyArray_DATA(mismatch_array),
-            precision, flags);
+            likelihood_threshold, flags);
     if (err != 0) {
         handle_library_error(err);
         goto out;

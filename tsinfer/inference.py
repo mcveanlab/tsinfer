@@ -269,6 +269,7 @@ def infer(
     num_threads=0,
     # Deliberately undocumented parameters below
     precision=None,
+    likelihood_threshold=None,
     engine=constants.C_ENGINE,
     progress_monitor=None,
     time_units=None,
@@ -349,6 +350,7 @@ def infer(
         recombination_rate=recombination_rate,
         mismatch_ratio=mismatch_ratio,
         precision=precision,
+        likelihood_threshold=likelihood_threshold,
         path_compression=path_compression,
         progress_monitor=progress_monitor,
         time_units=time_units,
@@ -362,6 +364,7 @@ def infer(
         recombination_rate=recombination_rate,
         mismatch_ratio=mismatch_ratio,
         precision=precision,
+        likelihood_threshold=likelihood_threshold,
         post_process=post_process,
         path_compression=path_compression,
         progress_monitor=progress_monitor,
@@ -457,6 +460,7 @@ def match_ancestors(
     recombination=None,  # See :class:`Matcher`
     mismatch=None,  # See :class:`Matcher`
     precision=None,
+    likelihood_threshold=None,
     engine=constants.C_ENGINE,
     progress_monitor=None,
     extended_checks=False,
@@ -514,6 +518,7 @@ def match_ancestors(
         path_compression=path_compression,
         num_threads=num_threads,
         precision=precision,
+        likelihood_threshold=likelihood_threshold,
         extended_checks=extended_checks,
         engine=engine,
         progress_monitor=progress_monitor,
@@ -639,6 +644,7 @@ def match_samples(
     recombination=None,  # See :class:`Matcher`
     mismatch=None,  # See :class:`Matcher`
     precision=None,
+    likelihood_threshold=None,
     extended_checks=False,
     engine=constants.C_ENGINE,
     progress_monitor=None,
@@ -723,6 +729,7 @@ def match_samples(
         path_compression=path_compression,
         num_threads=num_threads,
         precision=precision,
+        likelihood_threshold=likelihood_threshold,
         extended_checks=extended_checks,
         engine=engine,
         progress_monitor=progress_monitor,
@@ -1141,6 +1148,7 @@ class Matcher:
         recombination=None,
         mismatch=None,
         precision=None,
+        likelihood_threshold=None,
         extended_checks=False,
         engine=constants.C_ENGINE,
         progress_monitor=None,
@@ -1233,11 +1241,16 @@ class Matcher:
         if not (np.all(mismatch >= 0) and np.all(mismatch <= 1)):
             raise ValueError("Underlying mismatch probabilities not between 0 & 1")
 
-        if precision is None:
-            precision = 13
+        if precision is not None and likelihood_threshold is not None:
+            raise ValueError("Cannot specify likelihood_threshold and precision")
+        if precision is not None:
+            likelihood_threshold = pow(10, -precision)
+        if likelihood_threshold is None:
+            likelihood_threshold = 1e-13  # ~Same as previous precision default.
+
         self.recombination[1:] = recombination
         self.mismatch[:] = mismatch
-        self.precision = precision
+        self.likelihood_threshold = likelihood_threshold
 
         if len(recombination) == 0:
             logger.info("Fewer than two inference sites: no recombination possible")
@@ -1261,7 +1274,7 @@ class Matcher:
                 f"mean={np.mean(mismatch):.5g}"
             )
         logger.info(
-            f"Matching using {precision} digits of precision in likelihood calcs"
+            f"Matching using likelihood_threshold of {likelihood_threshold:.5g}"
         )
 
         if engine == constants.C_ENGINE:
@@ -1303,7 +1316,7 @@ class Matcher:
                 self.tree_sequence_builder,
                 recombination=self.recombination,
                 mismatch=self.mismatch,
-                precision=precision,
+                likelihood_threshold=likelihood_threshold,
                 extended_checks=self.extended_checks,
             )
             for _ in range(num_threads)

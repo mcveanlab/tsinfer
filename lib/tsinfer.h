@@ -108,7 +108,7 @@ typedef struct {
     int flags;
     site_t *sites;
     avl_tree_t time_map;
-    tsk_blkalloc_t allocator;
+    tsi_blkalloc_t allocator;
     ancestor_descriptor_t *descriptors;
 } ancestor_builder_t;
 
@@ -130,6 +130,7 @@ typedef struct {
     struct {
         mutation_list_node_t **mutations;
         tsk_size_t *num_alleles;
+        allele_t *ancestral_state;
     } sites;
     /* TODO add nodes struct */
     double *time;
@@ -141,7 +142,7 @@ typedef struct {
     size_t num_nodes;
     size_t num_match_nodes;
     size_t num_mutations;
-    tsk_blkalloc_t tsk_blkalloc;
+    tsi_blkalloc_t tsi_blkalloc;
     object_heap_t avl_node_heap;
     object_heap_t edge_heap;
     /* Dynamic edge indexes used for tree generation and path compression. The
@@ -164,7 +165,7 @@ typedef struct {
     size_t num_sites;
     size_t max_nodes;
     /* Input LS model rates */
-    unsigned int precision;
+    double likelihood_threshold;
     double *recombination_rate;
     double *mismatch_rate;
     /* The quintuply linked tree */
@@ -184,7 +185,7 @@ typedef struct {
     tsk_id_t *likelihood_nodes_tmp;
     tsk_id_t *likelihood_nodes;
     node_state_list_t *traceback;
-    tsk_blkalloc_t traceback_allocator;
+    tsi_blkalloc_t traceback_allocator;
     size_t total_traceback_size;
     struct {
         tsk_id_t *left;
@@ -207,7 +208,7 @@ int ancestor_builder_finalise(ancestor_builder_t *self);
 
 int ancestor_matcher_alloc(ancestor_matcher_t *self,
     tree_sequence_builder_t *tree_sequence_builder, double *recombination_rate,
-    double *mismatch_rate, unsigned int precision, int flags);
+    double *mismatch_rate, double likelihood_threshold, int flags);
 int ancestor_matcher_free(ancestor_matcher_t *self);
 int ancestor_matcher_find_path(ancestor_matcher_t *self, tsk_id_t start, tsk_id_t end,
     allele_t *haplotype, allele_t *matched_haplotype, size_t *num_output_edges,
@@ -217,8 +218,8 @@ double ancestor_matcher_get_mean_traceback_size(ancestor_matcher_t *self);
 size_t ancestor_matcher_get_total_memory(ancestor_matcher_t *self);
 
 int tree_sequence_builder_alloc(tree_sequence_builder_t *self, size_t num_sites,
-    tsk_size_t *num_alleles, size_t nodes_chunk_size, size_t edges_chunk_size,
-    int flags);
+    tsk_size_t *num_alleles, allele_t *ancestral_state, size_t nodes_chunk_size,
+    size_t edges_chunk_size, int flags);
 int tree_sequence_builder_print_state(tree_sequence_builder_t *self, FILE *out);
 int tree_sequence_builder_free(tree_sequence_builder_t *self);
 int tree_sequence_builder_add_node(

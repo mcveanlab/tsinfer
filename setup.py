@@ -31,12 +31,17 @@ sources = (
     + [os.path.join(kasdir, f) for f in kas_source_files]
 )
 
-libraries = ["Advapi32"] if IS_WINDOWS else []
+if IS_WINDOWS:
+    libraries = ["Advapi32"]
+    extra_compile_args = ["/std:c11"]
+else:
+    libraries = []
+    extra_compile_args = ["-std=c11"]
 
 _tsinfer_module = Extension(
     "_tsinfer",
     sources=sources,
-    extra_compile_args=["-std=c99"],
+    extra_compile_args=extra_compile_args,
     libraries=libraries,
     undef_macros=["NDEBUG"],
     include_dirs=includes + [numpy.get_include()],

@@ -94,7 +94,7 @@ ancestor_matcher_print_state(ancestor_matcher_t *self, FILE *out)
         }
         fprintf(out, "\n");
     }
-    tsk_blkalloc_print_state(&self->traceback_allocator, out);
+    tsi_blkalloc_print_state(&self->traceback_allocator, out);
 
     /* ancestor_matcher_check_state(self); */
     return 0;
@@ -103,7 +103,7 @@ ancestor_matcher_print_state(ancestor_matcher_t *self, FILE *out)
 int
 ancestor_matcher_alloc(ancestor_matcher_t *self,
     tree_sequence_builder_t *tree_sequence_builder, double *recombination_rate,
-    double *mismatch_rate, unsigned int precision, int flags)
+    double *mismatch_rate, double likelihood_threshold, int flags)
 {
     int ret = 0;
     /* TODO make these input parameters. */
@@ -112,7 +112,7 @@ ancestor_matcher_alloc(ancestor_matcher_t *self,
     memset(self, 0, sizeof(ancestor_matcher_t));
     /* All allocs for arrays related to nodes are done in expand_nodes */
     self->flags = flags;
-    self->precision = precision;
+    self->likelihood_threshold = likelihood_threshold;
     self->max_nodes = 0;
     self->tree_sequence_builder = tree_sequence_builder;
     self->num_sites = tree_sequence_builder->num_sites;
@@ -132,7 +132,7 @@ ancestor_matcher_alloc(ancestor_matcher_t *self,
         ret = TSI_ERR_NO_MEMORY;
         goto out;
     }
-    ret = tsk_blkalloc_init(&self->traceback_allocator, traceback_block_size);
+    ret = tsi_blkalloc_init(&self->traceback_allocator, traceback_block_size);
     if (ret != 0) {
         goto out;
     }
@@ -165,7 +165,7 @@ ancestor_matcher_free(ancestor_matcher_t *self)
     tsi_safe_free(self->output.left);
     tsi_safe_free(self->output.right);
     tsi_safe_free(self->output.parent);
-    tsk_blkalloc_free(&self->traceback_allocator);
+    tsi_blkalloc_free(&self->traceback_allocator);
     return 0;
 }
 
@@ -229,9 +229,9 @@ ancestor_matcher_store_traceback(ancestor_matcher_t *self, const tsk_id_t site_i
         T[site_id].node = T[site_id - 1].node;
         T[site_id].recombination_required = T[site_id - 1].recombination_required;
     } else {
-        list_node = tsk_blkalloc_get(&self->traceback_allocator,
+        list_node = tsi_blkalloc_get(&self->traceback_allocator,
             (size_t) num_likelihood_nodes * sizeof(tsk_id_t));
-        list_R = tsk_blkalloc_get(
+        list_R = tsi_blkalloc_get(
             &self->traceback_allocator, (size_t) num_likelihood_nodes * sizeof(int8_t));
         if (list_node == NULL || list_R == NULL) {
             ret = TSI_ERR_NO_MEMORY;
@@ -257,12 +257,12 @@ static inline void
 ancestor_matcher_set_allelic_state(
     ancestor_matcher_t *self, const tsk_id_t site, allele_t *restrict allelic_state)
 {
+    const tree_sequence_builder_t *tsb = self->tree_sequence_builder;
     mutation_list_node_t *mutation;
 
-    /* FIXME assuming that 0 is always the ancestral state */
-    allelic_state[0] = 0;
+    allelic_state[0] = tsb->sites.ancestral_state[site];
 
-    for (mutation = self->tree_sequence_builder->sites.mutations[site]; mutation != NULL;
+    for (mutation = tsb->sites.mutations[site]; mutation != NULL;
          mutation = mutation->next) {
         allelic_state[mutation->node] = mutation->derived_state;
     }
@@ -297,7 +297,8 @@ ancestor_matcher_update_site_likelihood_values(ancestor_matcher_t *self,
     double max_L, p_last, p_no_recomb, p_recomb, p_t, p_e;
     const double rho = self->recombination_rate[site];
     const double mu = self->mismatch_rate[site];
-    const double n = (double) self->tree_sequence_builder->num_match_nodes;
+    /* const double n = (double) self->tree_sequence_builder->num_match_nodes; */
+    const double n = 1;
     const double num_alleles
         = (double) self->tree_sequence_builder->sites.num_alleles[site];
 
@@ -365,7 +366,7 @@ ancestor_matcher_update_site_likelihood_values(ancestor_matcher_t *self,
     /* Renormalise the likelihoods. */
     for (j = 0; j < num_likelihood_nodes; j++) {
         u = L_nodes[j];
-        L[u] = tsk_round(L[u] / max_L, self->precision);
+        L[u] = TSK_MAX(L[u] / max_L, self->likelihood_threshold);
     }
     ancestor_matcher_unset_allelic_state(self, site, allelic_state);
 out:
@@ -553,7 +554,7 @@ ancestor_matcher_reset(ancestor_matcher_t *self)
     assert(self->num_nodes <= self->max_nodes);
 
     memset(self->allelic_state, 0xff, self->num_nodes * sizeof(*self->allelic_state));
-    ret = tsk_blkalloc_reset(&self->traceback_allocator);
+    ret = tsi_blkalloc_reset(&self->traceback_allocator);
     if (ret != 0) {
         goto out;
     }

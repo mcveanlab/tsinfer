@@ -636,13 +636,13 @@ class AncestorMatcher:
         tree_sequence_builder,
         recombination=None,
         mismatch=None,
-        precision=None,
+        likelihood_threshold=None,
         extended_checks=False,
     ):
         self.tree_sequence_builder = tree_sequence_builder
         self.mismatch = mismatch
         self.recombination = recombination
-        self.precision = precision
+        self.likelihood_threshold = likelihood_threshold
         self.extended_checks = extended_checks
         self.num_sites = tree_sequence_builder.num_sites
         self.parent = None
@@ -705,7 +705,8 @@ class AncestorMatcher:
         assert np.all(self.allelic_state == -1)
 
     def update_site(self, site, haplotype_state):
-        n = self.tree_sequence_builder.num_match_nodes
+        # n = self.tree_sequence_builder.num_match_nodes
+        n = 1
         rho = self.recombination[site]
         mu = self.mismatch[site]
         num_alleles = self.tree_sequence_builder.num_alleles[site]
@@ -763,13 +764,13 @@ class AncestorMatcher:
             elif rho == 0:
                 raise _tsinfer.MatchImpossible(
                     "Matching failed with recombination=0, potentially due to "
-                    "rounding issues. Try increasing the precision value"
+                    "rounding issues. Try increasing the likelihood_threshold value"
                 )
             raise AssertionError("Unexpected matching failure")
 
         for u in self.likelihood_nodes:
             x = self.likelihood[u] / max_L
-            self.likelihood[u] = round(x, self.precision)
+            self.likelihood[u] = max(x, self.likelihood_threshold)
 
         self.max_likelihood_node[site] = max_L_node
         self.unset_allelic_state(site)

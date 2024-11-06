@@ -88,15 +88,30 @@ class TestTreeSequenceBuilder:
     def test_init(self):
         with pytest.raises(TypeError):
             _tsinfer.TreeSequenceBuilder()
-        for bad_array in [None, "serf", [[], []], ["asdf"], {}]:
-            with pytest.raises(ValueError):
-                _tsinfer.TreeSequenceBuilder(bad_array)
 
         for bad_type in [None, "sdf", {}]:
             with pytest.raises(TypeError):
                 _tsinfer.TreeSequenceBuilder([2], max_nodes=bad_type)
             with pytest.raises(TypeError):
                 _tsinfer.TreeSequenceBuilder([2], max_edges=bad_type)
+
+    def test_bad_num_alleles(self):
+        for bad_array in [None, "serf", [[], []], ["asdf"], {}]:
+            with pytest.raises(ValueError):
+                _tsinfer.TreeSequenceBuilder(bad_array)
+        with pytest.raises(_tsinfer.LibraryError, match="number of alleles"):
+            _tsinfer.TreeSequenceBuilder([1000])
+
+    def test_bad_ancestral_state(self):
+        for bad_array in [None, "serf", [[], []], ["asdf"], {}]:
+            with pytest.raises(ValueError):
+                _tsinfer.TreeSequenceBuilder([2], ancestral_state=bad_array)
+        for bad_ancestral_state in [-1, -2]:
+            with pytest.raises(_tsinfer.LibraryError, match="Bad ancestral state"):
+                _tsinfer.TreeSequenceBuilder([2], ancestral_state=[bad_ancestral_state])
+
+        with pytest.raises(ValueError, match="ancestral state array wrong size"):
+            _tsinfer.TreeSequenceBuilder([2, 2, 2], ancestral_state=[])
 
 
 class TestAncestorBuilder:
