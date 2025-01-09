@@ -7,6 +7,10 @@
 - Document that the `zarr-vcf` dataset can be either a path or an in-memory zarr group.
   (feature introduced in {pr}`966`, documented in {pr}`974`, {user}`hyanwong`)
 
+- Allow a contig to be selected by name (`contig_id`), and get the `sequence_length`
+  of the contig associated with the unmasked sites, if contig lengths are provided
+  ({pr}`964`, {user}`hyanwong`)
+
 **Fixes**
 
 - Properly account for "N" as an unknown ancestral state, and ban "" from being
