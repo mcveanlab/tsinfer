@@ -4309,6 +4309,17 @@ class TestMismatchAndRecombination:
                     extended_checks=True,
                 )
 
+    def test_no_ancestor_mismatch_in_basic_infer(self, small_sd_anc_fixture):
+        # Check we are not using mismatch in match_ancestors, by
+        # passing a value that fails in the ma phase
+        sd, anc = small_sd_anc_fixture
+        rho = 0
+        with pytest.raises(_tsinfer.MatchImpossible):
+            # rho=0 fails if mismatch is used in match_ancestors
+            tsinfer.match_ancestors(sd, anc, recombination_rate=rho)
+        for e in [tsinfer.PY_ENGINE, tsinfer.C_ENGINE]:
+            tsinfer.infer(sd, recombination_rate=rho, engine=e)
+
 
 class TestAlgorithmResults:
     """

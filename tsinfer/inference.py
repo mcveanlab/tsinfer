@@ -295,8 +295,8 @@ def infer(
     and ``path_compression``.
 
     .. note::
-        For finer grained control over inference, for example to set different mismatch
-        ratios when matching ancestors versus samples, run
+        For finer grained control over inference, for example to set mismatch
+        ratios when matching ancestors as well as when matching samples, run
         :func:`tsinfer.generate_ancestors`, :func:`tsinfer.match_ancestors` and
         :func:`tsinfer.match_samples` separately.
 
@@ -305,14 +305,14 @@ def infer(
     :param recombination_rate: Either a floating point value giving a constant rate
         :math:`\\rho` per unit length of genome, or an :class:`msprime.RateMap`
         object. This is used to calculate the probability of recombination between
-        adjacent sites. If ``None``, all matching conflicts are resolved by
-        recombination and all inference sites will have a single mutation
-        (equivalent to mismatch_ratio near zero)
+        adjacent sites in the match_samples stage. If ``None``, all matching
+        conflicts are resolved by recombination and all inference sites will have
+        a single mutation (equivalent to mismatch_ratio near zero).
     :type recombination_rate: float, msprime.RateMap
     :param float mismatch_ratio: The probability of a mismatch relative to the median
         probability of recombination between adjacent sites: can only be used if a
         recombination rate has been set (default: ``None`` treated as 1 if
-        ``recombination_rate`` is set).
+        ``recombination_rate`` is set). This is only applied in the match_samples stage.
     :param bool path_compression: Whether to merge edges that share identical
         paths (essentially taking advantage of shared recombination breakpoints).
     :param bool post_process: Whether to run the :func:`post_process` method on the
@@ -348,13 +348,13 @@ def infer(
         progress_monitor=progress_monitor,
         record_provenance=False,
     )
+    # NB: do not pass or encourage use of the mismatch ratio / recombination rate in
+    # the ancestor matching phase. See https://github.com/tskit-dev/tsinfer/issues/980
     ancestors_ts = match_ancestors(
         sample_data,
         ancestor_data,
         engine=engine,
         num_threads=num_threads,
-        recombination_rate=recombination_rate,
-        mismatch_ratio=mismatch_ratio,
         precision=precision,
         path_compression=path_compression,
         progress_monitor=progress_monitor,
